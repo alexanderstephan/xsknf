@@ -1045,40 +1045,42 @@ int xsknf_cleanup()
 
 int xsknf_start_workers()
 {
-	stop_workers = 0;
+    stop_workers = 0;
 
-	if (conf.working_mode & MODE_AF_XDP) {
-		/* Get available CPUs */
-		pthread_t main_t = pthread_self();
-		cpu_set_t cpu_set;
-		int ret = pthread_getaffinity_np(main_t, sizeof(cpu_set_t), &cpu_set);
-		if (ret) {
-			exit_with_error(ret);
-		}
+    if (conf.working_mode & MODE_AF_XDP) {
+        pthread_t main_t = pthread_self();
+        cpu_set_t cpu_set;
+        int ret = pthread_getaffinity_np(main_t, sizeof(cpu_set_t), &cpu_set);
+        if (ret) {
+            exit_with_error(ret);
+        }
 
-		int num_cpus = CPU_COUNT(&cpu_set), curr_cpu = 0;
-		int cpus[num_cpus];
+        int num_cpus = CPU_COUNT(&cpu_set);
+        int cpus[num_cpus];
+        int curr_cpu = 0;
 
-		if (num_cpus < conf.workers) {
-			fprintf(stderr, "ERROR: not enough CPUs to host all workers\n");
-			xsknf_cleanup();
-			exit(EXIT_FAILURE);
-		}
+		// In our setup, we reserve core 0 for system tasks.
+        for (int i = 1; curr_cpu < num_cpus && i < CPU_SETSIZE; i++) {
+            if (CPU_ISSET(i, &cpu_set)) {
+                cpus[curr_cpu++] = i;
+            }
+        }
+        int num_usable_cpus = curr_cpu;
 
-		for (int i = 0; curr_cpu < num_cpus; i++) {
-			if (CPU_ISSET(i, &cpu_set)) {
-				cpus[curr_cpu++] = i;
-			}
-		}
+        if (num_usable_cpus < conf.workers) {
+            fprintf(stderr, "ERROR: Not enough CPUs (need %d, have %d available excluding Core 0)\n",
+                    conf.workers, num_usable_cpus);
+            xsknf_cleanup();
+            exit(EXIT_FAILURE);
+        }
 
-		curr_cpu = 0;
-		for (int i = 0; i < conf.workers; i++) {
-			ret = pthread_create(&workers[i].thread, NULL, worker_loop,
-					&workers[i]);
-			if (ret) {
-				exit_with_error(ret);
-			}
-
+        curr_cpu = 0;
+        for (int i = 0; i < conf.workers; i++) {
+            ret = pthread_create(&workers[i].thread, NULL, worker_loop,
+                                 &workers[i]);
+            if (ret) {
+                exit_with_error(ret);
+            }
 			/*
 			 * Set worker affinity to the corresponding CPU (worker N is bound
 			 * to the Nth CPU assigned to the application).
@@ -1086,17 +1088,18 @@ int xsknf_start_workers()
 			 * correct CPU through irq_affinity
 			 * (i.e., queue N -> Nth CPU -> worker N).
 			 */
-			CPU_ZERO(&cpu_set);
-			CPU_SET(cpus[curr_cpu++], &cpu_set);
-			ret = pthread_setaffinity_np(workers[i].thread, sizeof(cpu_set_t),
-					&cpu_set);
-			if (ret) {
-				exit_with_error(ret);
-			}
-		}
-	}
+            CPU_ZERO(&cpu_set);
+            CPU_SET(cpus[curr_cpu++], &cpu_set);
+            ret = pthread_setaffinity_np(workers[i].thread, sizeof(cpu_set_t),
+                                         &cpu_set);
+            if (ret) {
+                exit_with_error(ret);
+            }
+             printf("Pinned worker %d to dedicated CPU core %d\n", i, cpus[i]);
+        }
+    }
 
-	return 0;
+    return 0;
 }
 
 int xsknf_stop_workers()
