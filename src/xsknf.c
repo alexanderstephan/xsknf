@@ -1048,25 +1048,23 @@ int xsknf_start_workers()
     stop_workers = 0;
 
     if (conf.working_mode & MODE_AF_XDP) {
-        pthread_t main_t = pthread_self();
-        cpu_set_t cpu_set;
-        int ret = pthread_getaffinity_np(main_t, sizeof(cpu_set_t), &cpu_set);
-        if (ret) {
-            exit_with_error(ret);
+        /*
+         * Correctly determine the number of available CPUs by querying the
+         * system's configuration, which includes isolated CPUs. This avoids
+         * the old method of checking the main thread's affinity, which would
+         * not see the isolated cores.
+         */
+        long num_cpus = sysconf(_SC_NPROCESSORS_ONLN);
+        if (num_cpus < 0) {
+            exit_with_error(errno);
         }
 
-        int num_cpus = CPU_COUNT(&cpu_set);
-        int cpus[num_cpus];
-        int curr_cpu = 0;
-
-		// In our setup, we reserve core 0 for system tasks.
-        for (int i = 1; curr_cpu < num_cpus && i < CPU_SETSIZE; i++) {
-            if (CPU_ISSET(i, &cpu_set)) {
-                cpus[curr_cpu++] = i;
-            }
-        }
-        int num_usable_cpus = curr_cpu;
-
+        /*
+         * We build a list of usable CPUs for our workers. It is a common
+         * practice in high-performance networking to reserve Core 0 for
+         * system tasks, so we explicitly skip it.
+         */
+        int num_usable_cpus = num_cpus > 1 ? (int)num_cpus - 1 : 0;
         if (num_usable_cpus < conf.workers) {
             fprintf(stderr, "ERROR: Not enough CPUs (need %d, have %d available excluding Core 0)\n",
                     conf.workers, num_usable_cpus);
@@ -1074,28 +1072,37 @@ int xsknf_start_workers()
             exit(EXIT_FAILURE);
         }
 
-        curr_cpu = 0;
+        // Create an array containing the core IDs of our usable CPUs.
+        int cpus[num_usable_cpus];
+        int current_cpu_idx = 0;
+        for (int i = 1; i < num_cpus; i++) {
+            cpus[current_cpu_idx++] = i;
+        }
+
         for (int i = 0; i < conf.workers; i++) {
-            ret = pthread_create(&workers[i].thread, NULL, worker_loop,
-                                 &workers[i]);
+            int ret = pthread_create(&workers[i].thread, NULL, worker_loop,
+                                     &workers[i]);
             if (ret) {
                 exit_with_error(ret);
             }
-			/*
-			 * Set worker affinity to the corresponding CPU (worker N is bound
-			 * to the Nth CPU assigned to the application).
-			 * It is up to the user to guarantee that NIC interrupts land on the
-			 * correct CPU through irq_affinity
-			 * (i.e., queue N -> Nth CPU -> worker N).
-			 */
+
+            /*
+             * Set worker affinity to the corresponding CPU from our list.
+             * Worker N is bound to the Nth usable CPU (e.g., Worker 0 -> Core 1).
+             * It is up to the user to guarantee that NIC interrupts also land
+             * on the correct CPU through irq_affinity for best performance
+             * (i.e., queue N -> Nth CPU -> worker N).
+             */
+            int cpu_to_pin = cpus[i];
+            cpu_set_t cpu_set;
             CPU_ZERO(&cpu_set);
-            CPU_SET(cpus[curr_cpu++], &cpu_set);
+            CPU_SET(cpu_to_pin, &cpu_set);
             ret = pthread_setaffinity_np(workers[i].thread, sizeof(cpu_set_t),
                                          &cpu_set);
             if (ret) {
                 exit_with_error(ret);
             }
-             printf("Pinned worker %d to dedicated CPU core %d\n", i, cpus[i]);
+             printf("Pinned worker %d to dedicated CPU core %d\n", i, cpu_to_pin);
         }
     }
 
