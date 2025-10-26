@@ -412,67 +412,62 @@ struct pkt_info {
 };
 
 static inline void complete_tx(struct xsk_socket_info *xsks,
-		unsigned ifindex)
+        unsigned ifindex)
 {
-	struct xsk_socket_info *tx_xsk = &xsks[ifindex];
-	uint32_t idx;
-	unsigned int sent, ret;
-	uint64_t to_fill[conf.num_interfaces][conf.batch_size];
-	/* This counters support a max batch size of 511 packets */
-	uint8_t nfill[XSKNF_MAX_INTERFACES] = {0};
-	size_t ndescs;
-	int i, j, owner;
-	uint64_t addr;
+    struct xsk_socket_info *tx_xsk = &xsks[ifindex];
+    uint32_t idx;
+    unsigned int sent, ret;
+    uint64_t to_fill[conf.num_interfaces][conf.batch_size];
+    uint8_t nfill[XSKNF_MAX_INTERFACES] = {0};
+    size_t ndescs;
+    int i, owner;
+    uint64_t addr;
 
-	if (!tx_xsk->outstanding_tx)
-		return;
+    if (!tx_xsk->outstanding_tx)
+        return;
 
-	/* 
-	 * Tx must be manually triggered for COPY mode sockets and when busy polling
-	 * is disabled and the NEED_WAKEUP flag of the tx queue is set
-	 */
-	if (tx_xsk->bind_flags & XDP_COPY || (!conf.poll && !conf.busy_poll
-			&& xsk_ring_prod__needs_wakeup(&tx_xsk->tx))) {
-		tx_xsk->stats.tx_trigger_sendtos++;
-		kick_tx(tx_xsk);
-	}
+    /* Trigger TX if copy mode or NEED_WAKEUP is set (poll or busy_poll) */
+    if (tx_xsk->bind_flags & XDP_COPY || (!conf.busy_poll &&
+            xsk_ring_prod__needs_wakeup(&tx_xsk->tx))) {
+        tx_xsk->stats.tx_trigger_sendtos++;
+        kick_tx(tx_xsk);
+    }
 
-	ndescs = (tx_xsk->outstanding_tx > conf.batch_size) ? conf.batch_size :
-			tx_xsk->outstanding_tx;
-
+    ndescs = (tx_xsk->outstanding_tx > conf.batch_size) ? conf.batch_size :
+            tx_xsk->outstanding_tx;
 	/* Recycle completed tx frames */
-	sent = xsk_ring_cons__peek(&tx_xsk->cq, ndescs, &idx);
-	if (sent > 0) {
+    sent = xsk_ring_cons__peek(&tx_xsk->cq, ndescs, &idx);
+    if (sent > 0) {
 		/* Map every frame to its owner */
-		for (i = 0; i < sent; i++) {
-			addr = *xsk_ring_cons__comp_addr(&tx_xsk->cq, idx++);
-			owner = addr >> owner_shift;
-			to_fill[owner][nfill[owner]++] = addr;
-		}
+        for (i = 0; i < sent; i++) {
+            addr = *xsk_ring_cons__comp_addr(&tx_xsk->cq, idx++);
+            owner = addr >> owner_shift;
+            to_fill[owner][nfill[owner]++] = addr;
+        }
 
-		xsk_ring_cons__release(&tx_xsk->cq, sent);
-		tx_xsk->stats.tx_npkts += sent;
+        xsk_ring_cons__release(&tx_xsk->cq, sent);
+        tx_xsk->stats.tx_npkts += sent;
 
 		/* Put frames in their owner's fill queue */
-		for (i = 0; i < conf.num_interfaces; i++) {
-			if (nfill[i]) {
-				ret = xsk_ring_prod__reserve(&xsks[i].fq, nfill[i], &idx);
-				if (ret != nfill[i]) {
+        for (i = 0; i < conf.num_interfaces; i++) {
+            if (nfill[i]) {
+                ret = xsk_ring_prod__reserve(&xsks[i].fq, nfill[i], &idx);
+                if (ret != nfill[i]) {
 					/* (0 < ret < nfill[i]) should never happen */
-					exit_with_error(-ret);
+                    exit_with_error(-ret);
 				}
 
-				for (int j = 0; j < nfill[i]; j++) {
-					*xsk_ring_prod__fill_addr(&xsks[i].fq, idx++) =
+                for (int j = 0; j < nfill[i]; j++) {
+                    *xsk_ring_prod__fill_addr(&xsks[i].fq, idx++) =
 							to_fill[i][j];
 				}
 
-				xsk_ring_prod__submit(&xsks[i].fq, nfill[i]);
-			}
-		}
-		
-		tx_xsk->outstanding_tx -= sent;
-	}
+                xsk_ring_prod__submit(&xsks[i].fq, nfill[i]);
+            }
+        }
+
+        tx_xsk->outstanding_tx -= sent;
+    }
 }
 
 static void process_batch(struct xsk_socket_info *xsks, unsigned ifindex)
@@ -586,45 +581,40 @@ static void process_batch(struct xsk_socket_info *xsks, unsigned ifindex)
 
 static inline void complete_tx_1if(struct xsk_socket_info *xsk)
 {
-	uint32_t idx_cq, idx_fq;
-	unsigned int sent, ret, i;
-	size_t ndescs;
+    uint32_t idx_cq, idx_fq;
+    unsigned int sent, ret;
+    size_t ndescs;
 
-	if (!xsk->outstanding_tx)
-		return;
+    if (!xsk->outstanding_tx)
+        return;
+    /* Trigger TX if copy mode or NEED_WAKEUP is set (poll or busy_poll) */
+    if (xsk->bind_flags & XDP_COPY || (!conf.busy_poll &&
+            xsk_ring_prod__needs_wakeup(&xsk->tx))) {
+        xsk->stats.tx_trigger_sendtos++;
+        kick_tx(xsk);
+    }
 
-	/* 
-	 * Tx must be manually triggered for COPY mode sockets and when busy polling
-	 * is disabled and the NEED_WAKEUP flag of the tx queue is set
-	 */
-	if (xsk->bind_flags & XDP_COPY || (!conf.poll && !conf.busy_poll
-			&& xsk_ring_prod__needs_wakeup(&xsk->tx))) {
-		xsk->stats.tx_trigger_sendtos++;
-		kick_tx(xsk);
-	}
-
-	ndescs = (xsk->outstanding_tx > conf.batch_size) ? conf.batch_size :
-			xsk->outstanding_tx;
-
+    ndescs = (xsk->outstanding_tx > conf.batch_size) ? conf.batch_size :
+            xsk->outstanding_tx;
 	/* Recycle completed tx frames */
-	sent = xsk_ring_cons__peek(&xsk->cq, ndescs, &idx_cq);
-	if (sent > 0) {
-		xsk->stats.tx_npkts += sent;
+    sent = xsk_ring_cons__peek(&xsk->cq, ndescs, &idx_cq);
+    if (sent > 0) {
+        xsk->stats.tx_npkts += sent;
 
-		ret = xsk_ring_prod__reserve(&xsk->fq, sent, &idx_fq);
+        ret = xsk_ring_prod__reserve(&xsk->fq, sent, &idx_fq);
 		if (ret != sent) {
 			/* (0 < ret < sent) should never happen */
 			exit_with_error(-ret);
 		}
 
-		for (int i = 0; i < sent; i++)
-			*xsk_ring_prod__fill_addr(&xsk->fq, idx_fq++) =
-				*xsk_ring_cons__comp_addr(&xsk->cq, idx_cq++);
+        for (int i = 0; i < sent; i++)
+            *xsk_ring_prod__fill_addr(&xsk->fq, idx_fq++) =
+                *xsk_ring_cons__comp_addr(&xsk->cq, idx_cq++);
 
-		xsk_ring_prod__submit(&xsk->fq, sent);
-		xsk_ring_cons__release(&xsk->cq, sent);
-		xsk->outstanding_tx -= sent;
-	}
+        xsk_ring_prod__submit(&xsk->fq, sent);
+        xsk_ring_cons__release(&xsk->cq, sent);
+        xsk->outstanding_tx -= sent;
+    }
 }
 
 static void process_batch_1if(struct xsk_socket_info *xsk)
@@ -715,30 +705,59 @@ static void process_batch_1if(struct xsk_socket_info *xsk)
 
 static void *worker_loop(void *arg)
 {
-	struct worker *worker = (struct worker *)arg;
-	struct pollfd fds[XSKNF_MAX_INTERFACES] = {};
-	int i, ret;
+    struct worker *worker = (struct worker *)arg;
+    struct pollfd fds[XSKNF_MAX_INTERFACES] = {};
+    int i, ret;
 
-	while (!stop_workers) {
-		if (conf.poll) {
-			for (i = 0; i < conf.num_interfaces; i++) {
-				fds[i].fd = xsk_socket__fd(worker->xsks[i].xsk);
-				fds[i].events = POLLIN;
-				worker->xsks[i].stats.opt_polls++;
-			}
-			ret = poll(fds, conf.num_interfaces, POLL_TIMEOUT_MS);
-			if (ret <= 0)
-				continue;
-		}
+    while (!stop_workers) {
+        if (conf.poll) {
+            int need_poll = 0;
 
-		if (conf.num_interfaces > 1) {
-			for (i = 0; i < conf.num_interfaces; i++) {
-				process_batch(worker->xsks, i);
-			}
-		} else {
-			process_batch_1if(&worker->xsks[0]);
-		}
-	}
+            /* Setup pollfds and check if any fill ring needs wakeup */
+            for (i = 0; i < conf.num_interfaces; i++) {
+                struct xsk_socket_info *xsk = &worker->xsks[i];
+                fds[i].fd = xsk_socket__fd(xsk->xsk);
+                fds[i].events = POLLIN;
+                xsk->stats.opt_polls++;
+
+                if (xsk_ring_prod__needs_wakeup(&xsk->fq))
+                    need_poll = 1;
+            }
+
+            if (need_poll) {
+                /* Block until RX or timeout */
+                ret = poll(fds, conf.num_interfaces, POLL_TIMEOUT_MS);
+                if (ret < 0)
+                    exit_with_error(errno);
+                if (ret == 0)
+                    continue;
+            } else {
+                /* Brief non-blocking poll to yield CPU */
+                struct pollfd pollfd = {
+                    .fd = xsk_socket__fd(worker->xsks[0].xsk),
+                    .events = POLLIN,
+                };
+                poll(&pollfd, 1, 0);
+            }
+        }
+
+        /* Process RX packets */
+        if (conf.num_interfaces > 1) {
+            for (i = 0; i < conf.num_interfaces; i++)
+                process_batch(worker->xsks, i);
+        } else {
+            process_batch_1if(&worker->xsks[0]);
+        }
+
+        /* Trigger TX for sockets if NEED_WAKEUP is set */
+        for (i = 0; i < conf.num_interfaces; i++) {
+            struct xsk_socket_info *xsk = &worker->xsks[i];
+            if (xsk_ring_prod__needs_wakeup(&xsk->tx)) {
+                xsk->stats.tx_wakeup_sendtos++;
+                kick_tx(xsk);
+            }
+        }
+    }
 }
 
 static struct option long_options[] = {
