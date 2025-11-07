@@ -418,7 +418,7 @@ static inline void complete_tx(struct xsk_socket_info *xsks,
     uint32_t idx;
     unsigned int sent, ret;
     uint64_t to_fill[conf.num_interfaces][conf.batch_size];
-    uint8_t nfill[XSKNF_MAX_INTERFACES] = {0};
+    unsigned int nfill[XSKNF_MAX_INTERFACES] = {0};
     size_t ndescs;
     int i, owner;
     uint64_t addr;
