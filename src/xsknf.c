@@ -951,8 +951,8 @@ int xsknf_init(struct xsknf_config *config, struct bpf_object **bpf_obj)
 		int umem_buf_flags = MAP_PRIVATE | MAP_ANONYMOUS
 				| (conf.unaligned_chunks ? MAP_HUGETLB : 0);
 		struct xsk_umem_config umem_cfg = {
-			.fill_size = XSK_RING_PROD__DEFAULT_NUM_DESCS * 2,
-			.comp_size = XSK_RING_CONS__DEFAULT_NUM_DESCS,
+			.fill_size = XSK_RING_PROD__DEFAULT_NUM_DESCS * 4,
+			.comp_size = XSK_RING_CONS__DEFAULT_NUM_DESCS * 4,
 			.frame_size = conf.xsk_frame_size,
 			.frame_headroom = XSK_UMEM__DEFAULT_FRAME_HEADROOM,
 			.flags = conf.unaligned_chunks ?
