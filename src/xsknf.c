@@ -475,8 +475,10 @@ static void process_batch(struct xsk_socket_info *xsks, unsigned ifindex)
 	struct xsk_socket_info *rx_xsk = &xsks[ifindex];
 	struct pkt_info to_drop[conf.batch_size],
 			to_tx[conf.num_interfaces][conf.batch_size];
-	/* These counters support a max batch size of 511 packets */
-	uint8_t ndrop = 0, ntx[XSKNF_MAX_INTERFACES] = {0};
+
+	/* FIX: Changed from uint8_t to unsigned int to prevent 256 overflow */
+	unsigned int ndrop = 0, ntx[XSKNF_MAX_INTERFACES] = {0};
+	
 	unsigned int rcvd, i, j;
 	uint32_t idx;
 	int ret;
@@ -620,8 +622,8 @@ static inline void complete_tx_1if(struct xsk_socket_info *xsk)
 static void process_batch_1if(struct xsk_socket_info *xsk)
 {
 	struct pkt_info to_drop[conf.batch_size], to_tx[conf.batch_size];
-	/* These counters support a max batch size of 511 packets */
-	uint8_t ndrop = 0, ntx = 0;
+	/* FIX: Changed from uint8_t to unsigned int to prevent 256 overflow */
+    unsigned int ndrop = 0, ntx = 0;
 	unsigned int rcvd, i;
 	uint32_t idx;
 	int ret;
