@@ -713,34 +713,15 @@ static void *worker_loop(void *arg)
 
     while (!stop_workers) {
         if (conf.poll) {
-            int need_poll = 0;
-
-            /* Setup pollfds and check if any fill ring needs wakeup */
-            for (i = 0; i < conf.num_interfaces; i++) {
-                struct xsk_socket_info *xsk = &worker->xsks[i];
-                fds[i].fd = xsk_socket__fd(xsk->xsk);
-                fds[i].events = POLLIN;
-                xsk->stats.opt_polls++;
-
-                if (xsk_ring_prod__needs_wakeup(&xsk->fq))
-                    need_poll = 1;
-            }
-
-            if (need_poll) {
-                /* Block until RX or timeout */
-                ret = poll(fds, conf.num_interfaces, POLL_TIMEOUT_MS);
-                if (ret < 0)
-                    exit_with_error(errno);
-                if (ret == 0)
-                    continue;
-            } else {
-                /* Brief non-blocking poll to yield CPU */
-                struct pollfd pollfd = {
-                    .fd = xsk_socket__fd(worker->xsks[0].xsk),
-                    .events = POLLIN,
-                };
-                poll(&pollfd, 1, 0);
-            }
+			int need_poll = 0;
+		    for (i = 0; i < conf.num_interfaces; i++) {
+		        if (xsk_ring_prod__needs_wakeup(&worker->xsks[i].fq))
+		            need_poll = 1;
+		    }
+		    if (need_poll) {
+		        /* Only call poll when kernel requests it */
+		        poll(fds, conf.num_interfaces, POLL_TIMEOUT_MS);
+		    }
         }
 
         /* Process RX packets */
