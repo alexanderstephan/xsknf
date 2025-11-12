@@ -31,7 +31,7 @@ static int opt_double_macswap = 0;
 struct bpf_object *obj;
 struct xsknf_config config;
 
-int xsknf_packet_processor(void *pkt, unsigned len, unsigned ingress_ifindex)
+inline int xsknf_packet_processor(void *pkt, unsigned len, unsigned ingress_ifindex)
 {
 	void *pkt_end = pkt + len;
 
@@ -41,9 +41,6 @@ int xsknf_packet_processor(void *pkt, unsigned len, unsigned ingress_ifindex)
 	}
 
 	swap_mac_addresses(pkt);
-	if (opt_double_macswap) {
-		swap_mac_addresses_v2(pkt);
-	}
 
 	return opt_action == ACTION_DROP ?
 			-1 : (ingress_ifindex + 1) % config.num_interfaces;
