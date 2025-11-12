@@ -125,8 +125,8 @@ static void xsk_configure_socket(char *iface, unsigned queue,
 	int ret, sock_opt;
 	uint32_t idx;
 
-	cfg.rx_size = XSK_RING_CONS__DEFAULT_NUM_DESCS;
-	cfg.tx_size = XSK_RING_PROD__DEFAULT_NUM_DESCS;
+	cfg.rx_size = XSK_RING_CONS__DEFAULT_NUM_DESCS * 2;
+	cfg.tx_size = XSK_RING_PROD__DEFAULT_NUM_DESCS * 2;
 	if (conf.working_mode & MODE_XDP) {
 		cfg.libbpf_flags = XSK_LIBBPF_FLAGS__INHIBIT_PROG_LOAD;
 	} else {
