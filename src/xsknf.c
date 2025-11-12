@@ -33,8 +33,8 @@
  * Every address in the UMEM area can be structured as follows:
  * | owner-id | frame-id | in-frame-offset |
  */
-#define FRAMES_PER_SOCKET_SHIFT 12
-#define FRAMES_PER_SOCKET (1 << FRAMES_PER_SOCKET_SHIFT)  // 4096
+#define FRAMES_PER_SOCKET_SHIFT 14
+#define FRAMES_PER_SOCKET (1 << FRAMES_PER_SOCKET_SHIFT)  // 16384
 
 #define DEFAULT_BIND_FLAGS (XDP_USE_NEED_WAKEUP)
 
@@ -929,11 +929,10 @@ int xsknf_init(struct xsknf_config *config, struct bpf_object **bpf_obj)
 		/* Configure the UMEM */
 		umem_bufsize = FRAMES_PER_SOCKET * conf.num_interfaces
 				* conf.xsk_frame_size;
-		int umem_buf_flags = MAP_PRIVATE | MAP_ANONYMOUS
-				| (conf.unaligned_chunks ? MAP_HUGETLB : 0);
+		int umem_buf_flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_HUGETLB;
 		struct xsk_umem_config umem_cfg = {
-			.fill_size = XSK_RING_PROD__DEFAULT_NUM_DESCS * 4,
-			.comp_size = XSK_RING_CONS__DEFAULT_NUM_DESCS * 4,
+			.fill_size = XSK_RING_PROD__DEFAULT_NUM_DESCS * 8,
+			.comp_size = XSK_RING_CONS__DEFAULT_NUM_DESCS * 8,
 			.frame_size = conf.xsk_frame_size,
 			.frame_headroom = XSK_UMEM__DEFAULT_FRAME_HEADROOM,
 			.flags = conf.unaligned_chunks ?
